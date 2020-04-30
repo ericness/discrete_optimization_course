@@ -34,12 +34,10 @@ def solve_it(input_data):
     model.edges = pe.Set(
         initialize={Edge(node1=edge[0], node2=edge[1]) for edge in edges},
     )
-#    model.colors = pe.Set(initialize=range(10), domain=pe.NonNegativeIntegers)
     model.node_colors = pe.Var(
         model.nodes,
-#        model.colors,
         domain=pe.NonNegativeIntegers,
-        initialize=0,
+        initialize={node: i for i, node in enumerate(model.nodes)},
     )
     model.max_color = pe.Var(domain=pe.PositiveIntegers)
 
@@ -48,29 +46,26 @@ def solve_it(input_data):
         sense=pe.minimize
     )
 
-    def minimize_color(model, color: pe.NonNegativeIntegers, node: pe.NonNegativeIntegers):
-        return model.max_color >= color * model.node_colors[node, color]
+    def minimize_color(model, node: pe.NonNegativeIntegers):
+        return model.max_color >= model.node_colors[node]
 
-    model.minimize_color = pe.Constraint(model.colors, model.nodes, rule=minimize_color)
+    model.minimize_color = pe.Constraint(model.nodes, rule=minimize_color)
 
-    def neighbor_colors(model, color: pe.NonNegativeIntegers, edge: Edge):
-        return model.node_colors[edge.node1, color] + model.node_colors[edge.node2, color] <= 1
+    def neighbor_colors(model, edge: Edge):
+        return model.node_colors[edge.node1] + model.node_colors[edge.node2] == 2
 
-    model.neighbor_colors = pe.Constraint(model.colors, model.edges, rule=neighbor_colors)
+    model.neighbor_colors = pe.Constraint(model.edges, rule=neighbor_colors)
 
-    def one_color(model, node: pe.NonNegativeIntegers):
-        return sum(model.node_colors[node, color] for color in model.colors) == 1
-
-    model.one_color = pe.Constraint(model.nodes, rule=one_color)
-
-    solver = pe.SolverFactory("cbc")
+    solver = pe.SolverFactory("glpk")
     solver.solve(model)
 
-    solution = []
-    for node in model.nodes:
-        for color in model.colors:
-            if model.node_colors[node, color] == 1:
-                solution.append(color)
+    solution = model.node_colors.get_values()
+    print(model.max_color.get_values())
+    print(solution)
+    exit()
+    # for node in model.nodes:
+    #     if model.node_colors[node, color] == 1:
+    #             solution.append(color)
 
     # prepare the solution in the specified output format
     output_data = str(node_count) + ' ' + str(0) + '\n'
