@@ -26,6 +26,8 @@ def solve_it(input_data):
 
     # build a trivial solution
     # every node has its own color
+    color_limit = int(node_count/4)
+
     model = pe.ConcreteModel()
     model.nodes = pe.Set(
         initialize=range(node_count),
@@ -34,38 +36,57 @@ def solve_it(input_data):
     model.edges = pe.Set(
         initialize={Edge(node1=edge[0], node2=edge[1]) for edge in edges},
     )
+    model.colors = pe.Set(initialize=range(color_limit), domain=pe.NonNegativeIntegers)
     model.node_colors = pe.Var(
         model.nodes,
-        domain=pe.NonNegativeIntegers,
-        initialize={node: i for i, node in enumerate(model.nodes)},
+        model.colors,
+        domain=pe.Binary,
+        initialize=0,
     )
-    model.max_color = pe.Var(domain=pe.PositiveIntegers)
+    model.color_used = pe.Var(model.colors, domain=pe.Binary)
 
     model.objective = pe.Objective(
-        expr=model.max_color,
+        expr=pe.summation(model.color_used),
         sense=pe.minimize
     )
 
-    def minimize_color(model, node: pe.NonNegativeIntegers):
-        return model.max_color >= model.node_colors[node]
+    def neighbor_colors(model, color: pe.NonNegativeIntegers, edge: Edge):
+        return model.node_colors[edge.node1, color] + model.node_colors[edge.node2, color] <= model.color_used[color]
 
-    model.minimize_color = pe.Constraint(model.nodes, rule=minimize_color)
+    model.neighbor_colors = pe.Constraint(model.colors, model.edges, rule=neighbor_colors)
 
-    def neighbor_colors(model, edge: Edge):
-        return model.node_colors[edge.node1] + model.node_colors[edge.node2] == 2
+    def one_color(model, node: pe.NonNegativeIntegers):
+        return sum(model.node_colors[node, color] for color in model.colors) == 1
 
-    model.neighbor_colors = pe.Constraint(model.edges, rule=neighbor_colors)
+    model.one_color = pe.Constraint(model.nodes, rule=one_color)
 
-    solver = pe.SolverFactory("glpk")
-    solver.solve(model)
+    def color_assignment_one(model, color: pe.NonNegativeIntegers):
+        return model.color_used[color] <= sum(model.node_colors[n, color] for n in model.nodes)
 
-    solution = model.node_colors.get_values()
-    print(model.max_color.get_values())
-    print(solution)
-    exit()
-    # for node in model.nodes:
-    #     if model.node_colors[node, color] == 1:
-    #             solution.append(color)
+    model.color_assignment_one = pe.Constraint(model.colors, rule=color_assignment_one)
+
+    def color_assignment_two(model, color: pe.NonNegativeIntegers):
+        if color == 0:
+            return pe.Constraint.Skip
+        else:
+            return model.color_used[color] <= model.color_used[color - 1]
+
+    model.color_assignment_two = pe.Constraint(model.colors, rule=color_assignment_two)
+
+    def color_assignment_three(model):
+        return model.node_colors[0, 0] == 1
+
+    model.color_assignment_three = pe.Constraint(rule=color_assignment_three)
+
+    solver = pe.SolverFactory("gurobi")
+    solver.options["TimeLimit"] = 300
+    solver.solve(model, tee=True) # options="TimeLimit=60",
+
+    solution = []
+    for node in model.nodes:
+        for color in model.colors:
+            if model.node_colors[node, color] == 1:
+                solution.append(color)
 
     # prepare the solution in the specified output format
     output_data = str(node_count) + ' ' + str(0) + '\n'
